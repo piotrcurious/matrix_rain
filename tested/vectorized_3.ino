@@ -1,26 +1,16 @@
-/*
-  matrix_rain_vectorized_fixed.ino
-
-  Vectorized, memory-conscious Matrix rain with persistent fade and
-  correct fast-drop interaction & head boosting behavior.
-*/
-
-#include "Arduino.h"
+#include <Arduino.h>
 #include <string.h>
 
 // ---------------------- CONFIG ----------------------
 const uint32_t SERIAL_BAUD = 115200;
-
 const uint8_t TERM_COLS = 80;
 const uint8_t TERM_ROWS = 24;
-
 const uint16_t FRAME_MS = 1;
 const uint8_t MAX_DROPS = 35;
 const uint8_t MAX_TRAIL = 12;
 const uint8_t MAX_FAST = 16;
 const uint8_t SPAWN_CHANCE = 45;
 const uint8_t SPAWN_FAST_CHANCE = 28;
-
 const char CHARSET[] = "abcdefghijklmnopqrstuvwxyz0123456789@#$%&*()<>/\"";
 
 // ---------------------- DERIVED ----------------------
@@ -36,6 +26,7 @@ struct Drop {
   uint32_t rng;
   uint8_t boost;
 };
+
 struct FastDrop {
   bool active;
   uint8_t col;
@@ -49,7 +40,6 @@ Drop drops[MAX_DROPS];
 FastDrop fasts[MAX_FAST];
 bool column_occupied[TERM_COLS];
 uint32_t global_rng = 0xA5A5A5A5u;
-
 static uint8_t drop_char_idx[MAX_DROPS][MAX_TRAIL];
 static uint8_t drop_bright_packed[MAX_DROPS][BRIGHT_BYTES_PER_DROP + 1];
 
@@ -74,13 +64,12 @@ void stepDrops();
 void stepFastDrops();
 void renderFrame(uint32_t salt);
 
-// ---------------------- PRNG / helpers ----------------------
+// ---------------------- PRNG ----------------------
 uint32_t splitmix32(uint32_t x) {
   x += 0x9e3779b9u;
   x = (x ^ (x >> 16)) * 0x85ebca6bu;
   x = (x ^ (x >> 13)) * 0xc2b2ae35u;
-  x = x ^ (x >> 16);
-  return x;
+  return x ^ (x >> 16);
 }
 uint32_t nextRng(uint32_t &st) {
   st = splitmix32(st);
@@ -91,10 +80,7 @@ uint8_t pickIndex(uint32_t h) {
 }
 
 // ---------------------- TERMINAL HELPERS ----------------------
-void term_clear() {
-  Serial.write("\x1b[2J");
-  Serial.write("\x1b[H");
-}
+void term_clear() { Serial.write("\x1b[2J"); Serial.write("\x1b[H"); }
 void term_hide_cursor() { Serial.write("\x1b[?25l"); }
 void term_show_cursor() { Serial.write("\x1b[?25h"); }
 void term_set_color(uint8_t bright) {
@@ -128,9 +114,7 @@ void set_bright_slot(uint8_t drop_idx, uint8_t slot, uint8_t val) {
 }
 
 int findDropIndexInColumn(uint8_t col) {
-  for (uint8_t i = 0; i < MAX_DROPS; ++i) {
-    if (drops[i].head != -1 && drops[i].col == col) return (int)i;
-  }
+  for (uint8_t i = 0; i < MAX_DROPS; ++i) if (drops[i].head != -1 && drops[i].col == col) return (int)i;
   return -1;
 }
 char charset_at_idx(uint8_t idx) {
@@ -211,21 +195,15 @@ void stepDrops() {
     if (d.head == -1) continue;
     d.age++;
     if (d.age >= d.speed) {
-      d.age = 0;
-      d.head++;
-      d.rng = splitmix32(d.rng);
+      d.age = 0; d.head++; d.rng = splitmix32(d.rng);
       if (d.trail > 1) memmove(&drop_char_idx[i][1], &drop_char_idx[i][0], (size_t)(d.trail - 1));
       drop_char_idx[i][0] = pickIndex(nextRng(d.rng));
-      for (int k = d.trail - 1; k > 0; --k) {
-        set_bright_slot(i, k, get_bright_slot(i, k - 1));
-      }
+      for (int k = d.trail - 1; k > 0; --k) set_bright_slot(i, k, get_bright_slot(i, k - 1));
       set_bright_slot(i, 0, 3u);
     }
     if (d.boost) d.boost--;
     if (d.head - (int16_t)(d.trail - 1) >= (int16_t)TERM_ROWS) {
-      column_occupied[d.col] = false;
-      d.head = -1;
-      d.boost = 0;
+      column_occupied[d.col] = false; d.head = -1; d.boost = 0;
     }
   }
 }
@@ -236,9 +214,7 @@ void stepFastDrops() {
     if (!f.active) continue;
     f.age++;
     if (f.age >= f.speed) {
-      f.age = 0;
-      f.row++;
-      f.rng = splitmix32(f.rng);
+      f.age = 0; f.row++; f.rng = splitmix32(f.rng);
       if (f.row >= TERM_ROWS) { f.active = false; continue; }
       int di = findDropIndexInColumn(f.col);
       if (di != -1) {

@@ -42,6 +42,22 @@ inline unsigned long micros() { return std::chrono::duration_cast<std::chrono::m
 inline void delay(unsigned long ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 inline long random(long min, long max) { if (min >= max) return min; return min + (std::rand() % (max - min)); }
 inline long random(long max) { return random(0, max); }
+inline long map(long x, long in_min, long in_max, long out_min, long out_max) {
+  if (in_max == in_min) return out_min;
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+template<class T, class L, class H>
+inline T constrain(T value, L low, H high) {
+  return (value < low) ? (T)low : ((value > high) ? (T)high : value);
+}
+
+// Support for Wire mock if needed (minimal)
+class WireMock {
+public:
+    bool begin() { return true; }
+};
+extern WireMock Wire;
+
 void setup();
 void loop();
 #include "avr/pgmspace.h"

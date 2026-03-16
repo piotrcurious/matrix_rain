@@ -1,4 +1,5 @@
 #include "Arduino.h"
+WireMock Wire;
 SerialMock Serial;
 int main() {
     std::srand(std::time(nullptr));
