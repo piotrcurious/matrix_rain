@@ -3,7 +3,7 @@
 
 // Forward declarations
 uint32_t splitmix32(uint32_t x);
-uint32_t nextRng(uint32_t& st);
+uint32_t nextRng(uint32_t &st);
 char pickChar(uint32_t h);
 void term_clear();
 void term_hide_cursor();
@@ -24,6 +24,8 @@ const uint8_t TERM_COLS = 60;
 const uint8_t TERM_ROWS = 24;
 const uint16_t FRAME_MS = 60;
 const uint8_t MAX_TRAIL = min((uint8_t)TERM_ROWS, (uint8_t)12);
+
+// Charset stored in PROGMEM (flash)
 const char charset[] PROGMEM = "abcdefghijklmnopqrstuvwxyz0123456789@#$%&*()<>\\/";
 
 // ---------------------- VECTORIZED STATE ----------------------
@@ -45,7 +47,7 @@ static inline uint32_t splitmix32(uint32_t x) {
   x = x ^ (x >> 16);
   return x;
 }
-static inline uint32_t nextRng(uint32_t& st) {
+static inline uint32_t nextRng(uint32_t &st) {
   st = splitmix32(st);
   return st;
 }
@@ -59,6 +61,7 @@ static inline char pickChar(uint32_t h) {
 static inline void term_clear() { Serial.print(F("\x1b[2J\x1b[H")); }
 static inline void term_hide_cursor() { Serial.print(F("\x1b[?25l")); }
 static inline void term_show_cursor() { Serial.print(F("\x1b[?25h")); }
+// move cursor to row r (1-based), col c (1-based)
 static inline void term_move(uint8_t r, uint8_t c) {
   Serial.print(F("\x1b["));
   Serial.print((unsigned)r);
@@ -66,20 +69,13 @@ static inline void term_move(uint8_t r, uint8_t c) {
   Serial.print((unsigned)c);
   Serial.print(F("H"));
 }
+// set color using SGR sequences (brightness 0..3)
 static inline void term_set_color(uint8_t bright) {
   switch (bright) {
-    case 3:
-      Serial.print(F("\x1b[97;1m"));
-      break;
-    case 2:
-      Serial.print(F("\x1b[32;1m"));
-      break;
-    case 1:
-      Serial.print(F("\x1b[32m"));
-      break;
-    default:
-      Serial.print(F("\x1b[90m"));
-      break;
+  case 3: Serial.print(F("\x1b[97;1m")); break; // bright white
+  case 2: Serial.print(F("\x1b[32;1m")); break; // bright green
+  case 1: Serial.print(F("\x1b[32m")); break;   // green
+  default: Serial.print(F("\x1b[90m")); break;  // dim gray
   }
 }
 static inline void term_reset_color() { Serial.print(F("\x1b[0m")); }
@@ -112,7 +108,7 @@ void maybeSpawnHeads() {
 
 void stepColumns() {
   for (uint8_t c = 0; c < TERM_COLS; ++c) {
-    Column& col = cols[c];
+    Column &col = cols[c];
     if (col.head != -1) {
       col.age++;
       if (col.age >= col.speed) {
@@ -130,7 +126,7 @@ void stepColumns() {
 }
 
 uint8_t brightnessFor(uint8_t c, uint8_t r) {
-  Column& col = cols[c];
+  Column &col = cols[c];
   if (col.head == -1)
     return 0;
   int dist = (int)col.head - (int)r;

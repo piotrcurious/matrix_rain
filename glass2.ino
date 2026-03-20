@@ -1,19 +1,11 @@
-#include "Arduino.h"
+#include <Arduino.h>
 #include <avr/pgmspace.h>
-
-// Forward declarations
-char getBgChar(int x, int y, uint32_t t);
-bool rainActiveAt(int x, int y, uint32_t frame);
-void updateRain(uint32_t frame);
-void renderGlassRain(uint32_t frame);
-void term_clear();
-void term_move(int row, int col);
 
 // Terminal size (adjust to your terminal)
 const int term_cols = 60;
 const int term_rows = 20;
 
-// Background ASCII art (multi-line layout)
+// Background ASCII art (20 rows x 60 cols)
 const char ascii_bg[20][61] PROGMEM = {
   "          _____   ______  _____  _______ ______               ",
   "    /\\   |  __ \\ |  ____||  __ \\|__   __||  ____|            ",
@@ -34,7 +26,17 @@ const char ascii_bg[20][61] PROGMEM = {
   "  ... ... ... ... ... ... ... ... ... ... ... ... ... ...     ",
   "                                                              ",
   "--------------------------------------------------------------",
-  "      S I M U L A T I O N    A C T I V E                      "};
+  "      S I M U L A T I O N    A C T I V E                      "
+};
+
+// Forward declarations
+uint32_t hash32(uint32_t x);
+char getBgChar(int x, int y, uint32_t t);
+bool rainActiveAt(int x, int y, uint32_t frame);
+void updateRain(uint32_t frame);
+void renderGlassRain(uint32_t frame);
+void term_clear();
+void term_move(int row, int col);
 
 uint32_t hash32(uint32_t x) {
   x ^= x >> 13;
@@ -58,10 +60,10 @@ const int max_cols = 60;
 uint8_t drops[max_cols];
 const uint8_t rain_colors[4] PROGMEM = {46, 82, 118, 154};
 
-void term_clear() { Serial.print(F("\033[2J\033[H")); }
+void term_clear() { Serial.print(F("\x1b[2J\x1b[H")); }
 
 void term_move(int row, int col) {
-  Serial.print(F("\033["));
+  Serial.print(F("\x1b["));
   Serial.print(row + 1);
   Serial.print(F(";"));
   Serial.print(col + 1);
@@ -75,11 +77,9 @@ bool rainActiveAt(int x, int y, uint32_t frame) {
 void updateRain(uint32_t frame) {
   for (int i = 0; i < term_cols; i++) {
     if (drops[i] == 255) {
-      if (random(0, 15) == 0)
-        drops[i] = 0;
+      if (random(0, 15) == 0) drops[i] = 0;
     } else {
-      if (++drops[i] >= term_rows)
-        drops[i] = 255;
+      if (++drops[i] >= term_rows) drops[i] = 255;
     }
   }
 }
@@ -91,12 +91,12 @@ void renderGlassRain(uint32_t frame) {
       char base = getBgChar(x, y, frame / 4);
       if (rainActiveAt(x, y, frame)) {
         uint8_t c = pgm_read_byte(&rain_colors[(frame / 2 + x) & 3]);
-        Serial.print(F("\033[38;5;"));
+        Serial.print(F("\x1b[38;5;"));
         Serial.print(c);
         Serial.print(F("m"));
         Serial.write(base);
       } else {
-        Serial.print(F("\033[38;5;241m"));
+        Serial.print(F("\x1b[38;5;241m"));
         Serial.write(base);
       }
     }
@@ -107,8 +107,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   term_clear();
-  for (int i = 0; i < max_cols; i++)
-    drops[i] = 255;
+  for (int i = 0; i < max_cols; i++) drops[i] = 255;
 }
 
 void loop() {

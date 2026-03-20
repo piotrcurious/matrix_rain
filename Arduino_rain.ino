@@ -1,9 +1,8 @@
 #include "Arduino.h"
-#include <avr/pgmspace.h>
 
 // Forward declarations
 uint32_t splitmix32(uint32_t x);
-uint32_t nextRng(uint32_t& st);
+uint32_t nextRng(uint32_t &st);
 char pickChar(uint32_t h);
 void term_clear();
 void term_hide_cursor();
@@ -46,7 +45,7 @@ static inline uint32_t splitmix32(uint32_t x) {
   return x;
 }
 
-static inline uint32_t nextRng(uint32_t& st) {
+static inline uint32_t nextRng(uint32_t &st) {
   st = splitmix32(st);
   return st;
 }
@@ -70,18 +69,10 @@ static inline void term_move(uint8_t r, uint8_t c) {
 }
 static inline void term_set_color(uint8_t bright) {
   switch (bright) {
-    case 3:
-      Serial.write("\x1b[97;1m");
-      break;
-    case 2:
-      Serial.write("\x1b[32;1m");
-      break;
-    case 1:
-      Serial.write("\x1b[32m");
-      break;
-    default:
-      Serial.write("\x1b[90m");
-      break;
+  case 3: Serial.write("\x1b[97;1m"); break;
+  case 2: Serial.write("\x1b[32;1m"); break;
+  case 1: Serial.write("\x1b[32m"); break;
+  default: Serial.write("\x1b[90m"); break;
   }
 }
 
@@ -117,7 +108,7 @@ void maybeSpawnHeads() {
 
 void stepColumns() {
   for (uint8_t c = 0; c < TERM_COLS; ++c) {
-    Column& col = cols[c];
+    Column &col = cols[c];
     for (int r = TERM_ROWS - 1; r >= 0; --r) {
       if (brightness[c][r] > 0)
         brightness[c][r]--;

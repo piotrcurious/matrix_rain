@@ -1,26 +1,16 @@
-/*
-  matrix_rain_vectorized.ino
-
-  Vectorized, memory-conscious Matrix rain with persistent fade and
-  correct fast-drop interaction & head boosting behavior.
-*/
-
-#include "Arduino.h"
+#include <Arduino.h>
 #include <string.h>
 
 // ---------------------- CONFIG ----------------------
 const uint32_t SERIAL_BAUD = 115200;
-
 const uint8_t TERM_COLS = 80;
 const uint8_t TERM_ROWS = 24;
-
-const uint16_t FRAME_MS = 1;
+const uint16_t FRAME_MS = 10;
 const uint8_t MAX_DROPS = 35;
 const uint8_t MAX_TRAIL = 12;
-const uint8_t MAX_FAST = 16;
+const uint8_t MAX_FAST = 12;
 const uint8_t SPAWN_CHANCE = 45;
 const uint8_t SPAWN_FAST_CHANCE = 28;
-
 const char CHARSET[] = "abcdefghijklmnopqrstuvwxyz0123456789@#$%&*()<>/\"";
 
 // ---------------------- DERIVED ----------------------
@@ -36,6 +26,7 @@ struct Drop {
   uint32_t rng;
   uint8_t boost;
 };
+
 struct FastDrop {
   bool active;
   uint8_t col;
@@ -74,59 +65,69 @@ void stepDrops();
 void stepFastDrops();
 void renderFrame(uint32_t salt);
 
-// ---------------------- PRNG / helpers ----------------------
-uint32_t splitmix32(uint32_t x) {
+// ---------------------- PRNG ----------------------
+static inline uint32_t splitmix32(uint32_t x) {
   x += 0x9e3779b9u;
   x = (x ^ (x >> 16)) * 0x85ebca6bu;
   x = (x ^ (x >> 13)) * 0xc2b2ae35u;
   x = x ^ (x >> 16);
   return x;
 }
-uint32_t nextRng(uint32_t &st) {
+static inline uint32_t nextRng(uint32_t &st) {
   st = splitmix32(st);
   return st;
 }
-uint8_t pickIndex(uint32_t h) {
+static inline uint8_t pickIndex(uint32_t h) {
   return (uint8_t)(h % (sizeof(CHARSET) - 1));
 }
 
 // ---------------------- TERMINAL HELPERS ----------------------
-void term_clear() {
-  Serial.write("\x1b[2J");
-  Serial.write("\x1b[H");
-}
-void term_hide_cursor() { Serial.write("\x1b[?25l"); }
-void term_show_cursor() { Serial.write("\x1b[?25h"); }
-void term_set_color(uint8_t bright) {
+static inline void term_clear() { Serial.write("\x1b[2J"); Serial.write("\x1b[H"); }
+static inline void term_hide_cursor() { Serial.write("\x1b[?25l"); }
+static inline void term_show_cursor() { Serial.write("\x1b[?25h"); }
+static inline void term_set_color(uint8_t bright) {
   switch (bright) {
-  case 4: Serial.write("\x1b[97;1m"); break;
-  case 3: Serial.write("\x1b[97m"); break;
-  case 2: Serial.write("\x1b[32;1m"); break;
-  case 1: Serial.write("\x1b[32m"); break;
-  default: Serial.write("\x1b[90m"); break;
+    case 4: Serial.write("\x1b[97;1m"); break;
+    case 3: Serial.write("\x1b[97;1m"); break;
+    case 2: Serial.write("\x1b[32;1m"); break;
+    case 1: Serial.write("\x1b[32m");   break;
+    default: Serial.write("\x1b[90m");  break;
   }
 }
-void term_reset_color() { Serial.write("\x1b[0m"); }
+static inline void term_reset_color() { Serial.write("\x1b[0m"); }
 
-uint8_t get_bright_slot(uint8_t drop_idx, uint8_t slot) {
-  uint16_t bitpos = (uint16_t)slot * 2;
-  uint8_t byteIdx = bitpos / 8;
-  uint8_t bitOff = bitpos % 8;
-  uint16_t val = drop_bright_packed[drop_idx][byteIdx] | ((uint16_t)drop_bright_packed[drop_idx][byteIdx + 1] << 8);
-  return (uint8_t)((val >> bitOff) & 0x03u);
+// ---------------------- PACKED BRIGHTNESS ----------------------
+static inline uint8_t get_bright_slot(uint8_t drop_idx, uint8_t slot) {
+  uint16_t bitpos = (uint16_t)slot * 2u;
+  uint8_t byteIdx = (uint8_t)(bitpos >> 3);
+  uint8_t bitOff = (uint8_t)(bitpos & 7u);
+  uint16_t v = drop_bright_packed[drop_idx][byteIdx] >> bitOff;
+  if (bitOff <= 6) {
+    return (uint8_t)(v & 0x03u);
+  } else {
+    uint8_t next = drop_bright_packed[drop_idx][byteIdx + 1];
+    v |= (uint16_t)(next << (8 - bitOff));
+    return (uint8_t)(v & 0x03u);
+  }
 }
-void set_bright_slot(uint8_t drop_idx, uint8_t slot, uint8_t val) {
+
+static inline void set_bright_slot(uint8_t drop_idx, uint8_t slot, uint8_t val) {
   val &= 0x03u;
-  uint16_t bitpos = (uint16_t)slot * 2;
-  uint8_t byteIdx = bitpos / 8;
-  uint8_t bitOff = bitpos % 8;
-  uint16_t mask = (uint16_t) ~(0x03u << bitOff);
-  uint16_t data = drop_bright_packed[drop_idx][byteIdx] | ((uint16_t)drop_bright_packed[drop_idx][byteIdx + 1] << 8);
-  data = (data & mask) | ((uint16_t)val << bitOff);
-  drop_bright_packed[drop_idx][byteIdx] = (uint8_t)data;
-  drop_bright_packed[drop_idx][byteIdx + 1] = (uint8_t)(data >> 8);
+  uint16_t bitpos = (uint16_t)slot * 2u;
+  uint8_t byteIdx = (uint8_t)(bitpos >> 3);
+  uint8_t bitOff = (uint8_t)(bitpos & 7u);
+  if (bitOff <= 6) {
+    uint8_t mask = (uint8_t)(0x03u << bitOff);
+    drop_bright_packed[drop_idx][byteIdx] = (drop_bright_packed[drop_idx][byteIdx] & ~mask) | (uint8_t)(val << bitOff);
+  } else {
+    uint8_t low_mask = (uint8_t)(1u << 7);
+    drop_bright_packed[drop_idx][byteIdx] = (drop_bright_packed[drop_idx][byteIdx] & ~low_mask) | (uint8_t)((val & 0x01u) << 7);
+    uint8_t high_mask = 0x01u;
+    drop_bright_packed[drop_idx][byteIdx + 1] = (drop_bright_packed[drop_idx][byteIdx + 1] & ~high_mask) | (uint8_t)((val >> 1) & 0x01u);
+  }
 }
 
+// ---------------------- UTIL ----------------------
 int findDropIndexInColumn(uint8_t col) {
   for (uint8_t i = 0; i < MAX_DROPS; ++i) {
     if (drops[i].head != -1 && drops[i].col == col) return (int)i;
@@ -137,9 +138,12 @@ char charset_at_idx(uint8_t idx) {
   return CHARSET[idx % (sizeof(CHARSET) - 1)];
 }
 char charForFast(const FastDrop &f) {
-  return charset_at_idx((uint8_t)(f.rng % (sizeof(CHARSET) - 1)));
+  uint32_t h = f.rng;
+  h = splitmix32(h);
+  return charset_at_idx((uint8_t)(h % (sizeof(CHARSET) - 1)));
 }
 
+// ---------------------- STEPPERS ----------------------
 void setupState() {
   for (uint8_t i = 0; i < MAX_DROPS; ++i) {
     drops[i].head = -1;
@@ -206,6 +210,7 @@ void maybeSpawnFastDrop() {
 }
 
 void stepDrops() {
+  uint8_t tmp_bright[MAX_TRAIL];
   for (uint8_t i = 0; i < MAX_DROPS; ++i) {
     Drop &d = drops[i];
     if (d.head == -1) continue;
@@ -216,16 +221,20 @@ void stepDrops() {
       d.rng = splitmix32(d.rng);
       if (d.trail > 1) memmove(&drop_char_idx[i][1], &drop_char_idx[i][0], (size_t)(d.trail - 1));
       drop_char_idx[i][0] = pickIndex(nextRng(d.rng));
-      for (int k = d.trail - 1; k > 0; --k) {
-        set_bright_slot(i, k, get_bright_slot(i, k - 1));
+      for (uint8_t k = 0; k < d.trail; ++k) tmp_bright[k] = get_bright_slot(i, k);
+      for (int k = d.trail - 1; k >= 1; --k) {
+        uint8_t prev = tmp_bright[k - 1];
+        tmp_bright[k] = (prev > 1) ? (prev - 1) : 1;
       }
-      set_bright_slot(i, 0, 3u);
+      tmp_bright[0] = 3u;
+      for (uint8_t k = 0; k < d.trail; ++k) set_bright_slot(i, k, tmp_bright[k]);
+      if (d.boost) d.boost--;
     }
-    if (d.boost) d.boost--;
     if (d.head - (int16_t)(d.trail - 1) >= (int16_t)TERM_ROWS) {
       column_occupied[d.col] = false;
       d.head = -1;
       d.boost = 0;
+      for (uint8_t b = 0; b < BRIGHT_BYTES_PER_DROP + 1; ++b) drop_bright_packed[i][b] = 0;
     }
   }
 }
@@ -238,7 +247,6 @@ void stepFastDrops() {
     if (f.age >= f.speed) {
       f.age = 0;
       f.row++;
-      f.rng = splitmix32(f.rng);
       if (f.row >= TERM_ROWS) { f.active = false; continue; }
       int di = findDropIndexInColumn(f.col);
       if (di != -1) {
@@ -249,13 +257,13 @@ void stepFastDrops() {
           if (dist >= 0 && dist < d.trail) {
             drop_char_idx[di][dist] = pickIndex(nextRng(f.rng));
             uint8_t cur = get_bright_slot(di, (uint8_t)dist);
-            set_bright_slot(di, (uint8_t)dist, (cur < 3u) ? (cur + 1u) : 3u);
+            set_bright_slot(di, (uint8_t)dist, (cur < 3) ? (cur + 1) : 3);
           }
         }
-        if (f.row >= d.head) {
-          if (d.boost < 8) d.boost = 8;
+        if (f.row >= bottom) {
+          if (d.boost < 6) d.boost = 6;
           d.rng = splitmix32(splitmix32(d.rng));
-          set_bright_slot((uint8_t)di, 0, 3u);
+          set_bright_slot((uint8_t)di, 0, 3);
           f.active = false;
         }
       }
@@ -283,8 +291,7 @@ void renderFrame(uint32_t salt) {
           if (d.head == -1 || d.col != c) continue;
           int16_t dist = d.head - (int16_t)r;
           if (dist >= 0 && dist < d.trail) {
-            if (dist == 0 && d.boost > 0) current_brightness = 4;
-            else current_brightness = get_bright_slot(di, (uint8_t)dist);
+            current_brightness = get_bright_slot(di, (uint8_t)dist);
             ch = charset_at_idx(drop_char_idx[di][dist]);
             painted = true;
             break;
@@ -304,11 +311,14 @@ void renderFrame(uint32_t salt) {
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
+  uint32_t start = millis();
+  while (!Serial && (millis() - start < 1000)) { delay(1); }
   delay(50);
   term_hide_cursor();
   term_clear();
   setupState();
 }
+
 void loop() {
   static uint32_t salt = 0x12345678u;
   maybeSpawnDrop();

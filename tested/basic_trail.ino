@@ -1,5 +1,4 @@
 #include "Arduino.h"
-#include <avr/pgmspace.h>
 
 // Forward declarations
 void term_clear();
@@ -35,14 +34,12 @@ void term_move(uint8_t r, uint8_t c) {
   Serial.print(F("H"));
 }
 void term_set_color(uint8_t bright) {
-  if (bright == 3)
-    Serial.print(F("\x1b[97;1m"));
-  else if (bright == 2)
-    Serial.print(F("\x1b[32;1m"));
-  else if (bright == 1)
-    Serial.print(F("\x1b[32m"));
-  else
-    Serial.print(F("\x1b[90m"));
+  switch (bright) {
+    case 3: Serial.print(F("\x1b[97;1m")); break;
+    case 2: Serial.print(F("\x1b[32;1m")); break;
+    case 1: Serial.print(F("\x1b[32m")); break;
+    default: Serial.print(F("\x1b[90m")); break;
+  }
 }
 void term_reset_color() { Serial.print(F("\x1b[0m")); }
 
@@ -81,12 +78,9 @@ void renderFrame() {
       uint8_t b = 0;
       int dist = (int)cols[c].head - (int)r;
       if (dist >= 0 && dist < cols[c].trail) {
-        if (dist == 0)
-          b = 3;
-        else if (dist < 3)
-          b = 2;
-        else
-          b = 1;
+        if (dist == 0) b = 3;
+        else if (dist < 3) b = 2;
+        else b = 1;
       }
       term_set_color(b);
       Serial.print(b ? 'x' : ' ');
